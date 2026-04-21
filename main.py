@@ -1,50 +1,54 @@
 from flask import Flask, request
 import requests
+import json
 
 app = Flask(__name__)
 
-# Tus credenciales
 TOKEN = "8761556319:AAE62wYPkQ_A5VQg0ZZwJc6pAuilDZuwrNI"
 CHAT_ID = "-1003970317817"
 
-@app.route('/webhook', methods=['GET', 'POST'])
+@app.route('/webhook', methods=['POST', 'GET'])
 def webhook():
     if request.method == 'GET':
-        requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", 
-                      json={"chat_id": CHAT_ID, "text": "✅ Prueba desde el Navegador: ¡El servidor está VIVO!"})
-        return "Servidor funcionando", 200
+        return "Servidor activo", 200
 
+    # Capturamos el contenido crudo para evitar el error 400
+    raw_data = request.get_data(as_text=True)
+    
     try:
-        data = request.get_json(force=True)
-        side = data.get('side', 'UNKNOWN')
-        emoji = "🚀" if side == "BUY" else "🔥"
+        # Intentamos parsear manualmente para mayor seguridad
+        data = json.loads(raw_data)
         
-        # --- NUEVA LÓGICA DE PROBABILIDAD ---
-        # Leemos la fuerza (prediction) y la pasamos a número positivo con abs()
-        fuerza_cruda = data.get('strength', data.get('prediction', 0))
-        strength = abs(int(float(fuerza_cruda))) 
+        side = data.get('side', 'N/A')
+        strength_val = data.get('prediction', data.get('strength', 0))
+        strength = abs(int(float(strength_val)))
         
+        # Clasificación de probabilidad mejorada
         if strength >= 7:
-            probabilidad = "🟢 ALTA PROBABILIDAD"
+            prob = "🟢 ALTA PROBABILIDAD"
         elif strength >= 4:
-            probabilidad = "🟡 MEDIA PROBABILIDAD"
+            prob = "🟡 MEDIA PROBABILIDAD"
         else:
-            probabilidad = "🔴 ALTO RIESGO"
-        # ------------------------------------
+            prob = "🔴 ALTO RIESGO / BAJA FUERZA"
 
+        emoji = "🚀" if "BUY" in side.upper() else "🔥"
+        
         mensaje = (
-            f"{emoji} <b>NUEVA SEÑAL: {side}</b> {emoji}\n"
-            f"📊 <b>Filtro ML:</b> {probabilidad} (Fuerza {strength})\n"
+            f"{emoji} <b>ALERTA DE TRADING: {side}</b> {emoji}\n"
+            f"📊 <b>Probabilidad:</b> {prob} (Fuerza {strength})\n"
             f"━━━━━━━━━━━━━━\n"
-            f"📈 <b>Activo:</b> {data.get('symbol')}\n"
-            f"🎯 <b>Entrada:</b> {data.get('entry')}\n"
-            f"🛑 <b>Stop Loss:</b> {data.get('sl')}\n"
-            f"✅ <b>Take Profit:</b> {data.get('tp')}\n"
+            f"📈 <b>Activo:</b> {data.get('symbol', 'N/A')}\n"
+            f"🎯 <b>Entrada:</b> {data.get('entry', '0')}\n"
+            f"🛑 <b>Stop Loss:</b> {data.get('sl', '0')}\n"
+            f"✅ <b>Take Profit:</b> {data.get('tp', '0')}\n"
             f"━━━━━━━━━━━━━━"
         )
     except Exception as e:
-        mensaje = f"⚠️ Error en datos recibidos: {str(e)}\nContenido: {request.get_data(as_text=True)}"
+        # Si algo falla, el bot te avisará qué dato causó el problema
+        mensaje = f"⚠️ <b>Error de Formato:</b> El servidor recibió datos incompletos.\n\nContenido recibido:\n<code>{raw_data}</code>"
 
-    payload = {"chat_id": CHAT_ID, "text": mensaje, "parse_mode": "HTML"}
-    requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", json=payload)
+    # Envío a Telegram
+    requests.post(f"https://api.telegram.org/bot{TOKEN}/sendMessage", 
+                  json={"chat_id": CHAT_ID, "text": mensaje, "parse_mode": "HTML"})
+    
     return "OK", 200
